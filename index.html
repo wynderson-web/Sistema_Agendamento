@@ -142,7 +142,10 @@ const LoginScreen = ({ onLogin, loading }) => {
 };
 
 function AppointmentCalendar() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem('user');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [loading, setLoading] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [agendamentos, setAgendamentos] = useState([]);
@@ -151,14 +154,41 @@ function AppointmentCalendar() {
   const [formData, setFormData] = useState({ nome: '' });
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
+  const [debugMode, setDebugMode] = useState(true); // PRODUÇÃO: mudar para false
+  const [logs, setLogs] = useState([]);
+
+  const addLog = (message, data = null) => {
+    if (!debugMode) return;
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = { timestamp, message, data };
+    setLogs(prev => [...prev, logEntry]);
+    console.log(`[${timestamp}] ${message}`, data || '');
+  };
 
   const today = new Date();
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
   useEffect(() => {
-    if (user) { loadData(); }
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+      loadData();
+    } else {
+      localStorage.removeItem('user');
+    }
   }, [user, currentDate]);
+
+  // Auto-refresh a cada 30 segundos
+  useEffect(() => {
+    if (!user) return;
+    
+    const interval = setInterval(() => {
+      addLog('🔄 Atualização automática (30s)');
+      loadData();
+    }, 30000); // 30 segundos
+    
+    return () => clearInterval(interval);
+  }, [user]);
 
   const handleLogin = async (email, senha, setError) => {
     setLoading(true);
@@ -181,16 +211,27 @@ function AppointmentCalendar() {
   };
 
   const loadData = async () => {
+    addLog('Carregando dados...');
     try {
       const [agRes, blRes] = await Promise.all([
         fetch(`${API_URL}/agendamentos`),
         fetch(`${API_URL}/bloqueios`)
       ]);
+      addLog('Resposta agendamentos', { status: agRes.status });
+      addLog('Resposta bloqueios', { status: blRes.status });
+      
       const agData = await agRes.json();
       const blData = await blRes.json();
+      
+      addLog('Dados agendamentos', agData);
+      addLog('Dados bloqueios', blData);
+      
       if (agData.success) setAgendamentos(agData.agendamentos || []);
       if (blData.success) setBloqueios(blData.bloqueios || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      addLog('ERRO ao carregar dados', e.message);
+      console.error('Erro ao carregar dados:', e);
+    }
   };
 
   const showToast = (message, type) => {
@@ -231,15 +272,6 @@ function AppointmentCalendar() {
     return 'disponivel';
   };
 
-  const handleDelete = async (dateStr, slotId) => {
-    if (!confirm('Deseja realmente cancelar este agendamento?')) return;
-    const agendamento = agendamentos.find(a => a.Data === dateStr && a.Slot === slotId);
-    if (!agendamento) return;
-    
-    showToast('Cancelando agendamento...', 'info');
-    setAgendamentos(prev => prev.filter(a => !(a.Data === dateStr && a.Slot === slotId)));
-  };
-
   const getColor = (status, periodo) => {
     if (status === 'passado' || status === 'bloqueado') return 'bg-gray-200 text-gray-400 cursor-not-allowed';
     if (status === 'ocupado') return 'bg-red-100 text-red-400 line-through cursor-not-allowed';
@@ -260,32 +292,119 @@ function AppointmentCalendar() {
       showToast('Preencha o nome', 'error');
       return;
     }
+    
     setSubmitting(true);
+    addLog('Iniciando agendamento', { date: selectedSlot.date, slot: selectedSlot.id, nome: formData.nome });
+    
     try {
+      const payload = {
+        data: selectedSlot.date,
+        slot: selectedSlot.id,
+        horario: selectedSlot.horario,
+        nome: formData.nome
+      };
+      
+      addLog('Enviando requisição POST', payload);
+      
       const res = await fetch(`${API_URL}/agendar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: selectedSlot.date,
-          slot: selectedSlot.id,
-          horario: selectedSlot.horario,
-          nome: formData.nome,
-          contato: ''
-        })
+        body: JSON.stringify(payload)
       });
+      
+      addLog('Resposta recebida', { status: res.status, ok: res.ok });
+      
       const data = await res.json();
+      addLog('Dados da resposta', data);
+      
       if (data.success) {
-        showToast('Agendamento confirmado!', 'success');
         setSelectedSlot(null);
-        setSubmitting(false);
+        setFormData({ nome: '' });
+        showToast('Agendamento confirmado!', 'success');
+        addLog('Agendamento confirmado, recarregando dados...');
         await loadData();
       } else {
+        addLog('ERRO na resposta', data);
         showToast(data.error || 'Erro ao agendar', 'error');
-        setSubmitting(false);
       }
     } catch (e) {
+      addLog('ERRO de exceção', { message: e.message, stack: e.stack });
+      console.error('Erro ao agendar:', e);
       showToast('Erro de conexão', 'error');
+    } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (dateStr, slotId) => {
+    if (!confirm('Deseja realmente cancelar este agendamento?')) return;
+    
+    addLog('Iniciando cancelamento', { data: dateStr, slot: slotId });
+    showToast('Cancelando...', 'info');
+    
+    try {
+      const payload = { data: dateStr, slot: slotId };
+      addLog('Enviando DELETE', payload);
+      
+      const res = await fetch(`${API_URL}/cancelar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      addLog('Resposta DELETE', { status: res.status, ok: res.ok, statusText: res.statusText });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        addLog('ERRO HTTP', { status: res.status, body: errorText });
+        throw new Error(`HTTP ${res.status}: ${errorText}`);
+      }
+      
+		// FIX: Verifica se há conteúdo antes de fazer parse
+		const text = await res.text();
+		const data = text ? JSON.parse(text) : { success: false, error: 'Resposta vazia do servidor' };
+		addLog('Dados da resposta DELETE', data);
+
+		if (data.success) {
+		  showToast('Agendamento cancelado!', 'success');
+		  addLog('Cancelamento confirmado, recarregando...');
+		  await loadData();
+		} else {
+		  addLog('ERRO na resposta', data);
+		  showToast(data.error || 'Erro ao cancelar', 'error');
+		}
+    } catch (e) {
+      addLog('ERRO de exceção DELETE', { message: e.message, stack: e.stack });
+      console.error('Erro ao cancelar:', e);
+      showToast(`Erro: ${e.message}`, 'error');
+    }
+  };
+
+  const handleEnviarDisponibilidade = async () => {
+    try {
+      addLog('📤 Enviando disponibilidade ao Telegram...');
+      setLoading(true);
+      
+      const res = await fetch(`${API_URL}/enviar-disponibilidade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      
+      const result = await res.json();
+      addLog('✅ Resposta enviar disponibilidade', result);
+      
+      if (result.success) {
+        showToast('Disponibilidade enviada ao Telegram!', 'success');
+      } else {
+        showToast('Erro ao enviar disponibilidade', 'error');
+      }
+    } catch (e) {
+      addLog('ERRO ao enviar disponibilidade', { message: e.message });
+      console.error('Erro:', e);
+      showToast(`Erro: ${e.message}`, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -309,9 +428,28 @@ function AppointmentCalendar() {
               <p className="text-blue-100 text-sm">Olá, {user.nome}</p>
             </div>
           </div>
-          <button onClick={() => setUser(null)} className="p-2 bg-white/20 rounded-lg text-white hover:bg-white/30">
-            Sair
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleEnviarDisponibilidade}
+              disabled={loading}
+              className="p-2 bg-green-500/90 rounded-lg text-white hover:bg-green-600 text-xs font-semibold flex items-center gap-1 disabled:opacity-50"
+              title="Enviar disponibilidade ao Telegram"
+            >
+              📱 Enviar Disponibilidade
+            </button>
+            {debugMode && (
+              <button 
+                onClick={() => setLogs([])} 
+                className="p-2 bg-white/20 rounded-lg text-white hover:bg-white/30 text-xs"
+                title="Limpar logs"
+              >
+                🗑️ Logs
+              </button>
+            )}
+            <button onClick={() => setUser(null)} className="p-2 bg-white/20 rounded-lg text-white hover:bg-white/30">
+              Sair
+            </button>
+          </div>
         </div>
       </div>
 
@@ -348,8 +486,8 @@ function AppointmentCalendar() {
                         return (
                           <div key={slot.id} className="relative group">
                             <div className="w-full text-xs py-1 px-1 rounded bg-red-100 text-red-700 border border-red-300">
-                              <div className="font-semibold truncate">{slot.id}</div>
-                              <div className="text-[10px] truncate">{agendamento.Nome}</div>
+                              <div className="text-[9px] truncate lowercase">{slot.id}</div>
+                              <div className="text-[11px] font-bold truncate uppercase">{agendamento.Nome}</div>
                             </div>
                             <button 
                               onClick={() => handleDelete(dateStr, slot.id)}
@@ -381,6 +519,22 @@ function AppointmentCalendar() {
         </div>
       </div>
 
+      {/* PAINEL DE DEBUG - REMOVER EM PRODUÇÃO */}
+      {debugMode && logs.length > 0 && (
+        <div className="mt-4 bg-gray-900 text-green-400 rounded-xl p-4 max-h-96 overflow-auto font-mono text-xs">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-white font-bold">🔧 Debug Log ({logs.length})</h3>
+            <button onClick={() => setLogs([])} className="text-red-400 hover:text-red-300">Limpar</button>
+          </div>
+          {logs.map((log, i) => (
+            <div key={i} className="mb-2 border-b border-gray-700 pb-2">
+              <div className="text-yellow-400">[{log.timestamp}] {log.message}</div>
+              {log.data && <pre className="text-gray-400 text-[10px] mt-1">{JSON.stringify(log.data, null, 2)}</pre>}
+            </div>
+          ))}
+        </div>
+      )}
+
       <Modal isOpen={!!selectedSlot} onClose={() => setSelectedSlot(null)}>
         {selectedSlot && (
           <div className="p-6">
@@ -393,9 +547,28 @@ function AppointmentCalendar() {
               <p className="text-sm text-gray-500">Período: <span className="font-semibold text-gray-800">{selectedSlot.id} ({selectedSlot.horario})</span></p>
             </div>
             <div className="space-y-4">
-              <input type="text" placeholder="Nome completo *" value={formData.nome} onChange={e => setFormData({nome: e.target.value})} className="w-full border rounded-lg py-3 px-4" />
-              <button onClick={handleSubmit} disabled={submitting} className="w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
-                {submitting ? 'Confirmando...' : 'Confirmar Agendamento'}
+              <input 
+                type="text" 
+                placeholder="Nome completo *" 
+                value={formData.nome} 
+                onChange={e => setFormData({nome: e.target.value})} 
+                className="w-full border rounded-lg py-3 px-4"
+                autoFocus
+              />
+              <button 
+                onClick={handleSubmit} 
+                disabled={submitting} 
+                className="w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submitting ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                    </svg>
+                    Confirmando...
+                  </>
+                ) : 'Confirmar Agendamento'}
               </button>
             </div>
           </div>
