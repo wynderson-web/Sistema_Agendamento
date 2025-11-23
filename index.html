@@ -475,7 +475,9 @@ function AppointmentCalendar() {
             <div key={i} className={`min-h-28 md:min-h-36 border rounded-lg p-1 ${!day ? 'border-transparent' : isPast(day) ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200'}`}>
               {day && (
                 <>
-                  <div className={`text-sm font-bold mb-1 ${isPast(day) ? 'text-gray-400' : 'text-gray-800'}`}>{day}</div>
+                  <div className={`text-sm font-bold mb-1 ${isPast(day) ? 'text-gray-400' : 'text-gray-800'}`}>
+                    {day} - {diasSemana[new Date(currentDate.getFullYear(), currentDate.getMonth(), day).getDay()]}
+                  </div>
                   <div className="space-y-0.5">
                     {SLOTS.map(slot => {
                       const status = getStatus(day, slot.id);
