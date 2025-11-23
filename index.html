@@ -62,24 +62,23 @@ const LoginScreen = ({ onLogin, loading }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-400 to-blue-500 flex items-center justify-center p-4">
+      <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded-2xl shadow-2xl w-full max-w-md p-8 border border-blue-700">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" strokeWidth="2"/>
-              <line x1="16" y1="2" x2="16" y2="6" strokeWidth="2"/>
-              <line x1="8" y1="2" x2="8" y2="6" strokeWidth="2"/>
-              <line x1="3" y1="10" x2="21" y2="10" strokeWidth="2"/>
-            </svg>
+          <div className="flex items-center justify-center mx-auto mb-4">
+            <img 
+              src="https://realdata.com.br/wp-content/uploads/2024/02/logo-realdata.webp" 
+              alt="RealData Logo" 
+              className="h-16 w-auto"
+            />
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">Sistema de Agendamento</h1>
-          <p className="text-gray-500 mt-1">Faça login para continuar</p>
+          <h1 className="text-2xl font-bold text-white">Sistema de Agendamento</h1>
+          <p className="text-blue-200 mt-1">Faça login para continuar</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-blue-100 mb-1">Email</label>
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" strokeWidth="2"/>
@@ -95,7 +94,7 @@ const LoginScreen = ({ onLogin, loading }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+            <label className="block text-sm font-medium text-blue-100 mb-1">Senha</label>
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <rect x="5" y="11" width="14" height="10" rx="2" ry="2" strokeWidth="2"/>
@@ -226,8 +225,23 @@ function AppointmentCalendar() {
       addLog('Dados agendamentos', agData);
       addLog('Dados bloqueios', blData);
       
-      if (agData.success) setAgendamentos(agData.agendamentos || []);
-      if (blData.success) setBloqueios(blData.bloqueios || []);
+      if (agData.success) {
+        const agendamentosCarregados = (agData.agendamentos || []).map(a => ({
+          ...a,
+          Data: normalizeDate(a.Data)
+        }));
+        setAgendamentos(agendamentosCarregados);
+        addLog(`✅ Total agendamentos carregados: ${agendamentosCarregados.length}`, 
+          agendamentosCarregados.map(a => ({ Data: a.Data, Slot: a.Slot, Nome: a.Nome }))
+        );
+      }
+      if (blData.success) {
+        const bloqueiosCarregados = (blData.bloqueios || []).map(b => ({
+          ...b,
+          Data: normalizeDate(b.Data)
+        }));
+        setBloqueios(bloqueiosCarregados);
+      }
     } catch (e) {
       addLog('ERRO ao carregar dados', e.message);
       console.error('Erro ao carregar dados:', e);
@@ -240,6 +254,17 @@ function AppointmentCalendar() {
   };
 
   const formatDate = (d) => `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
+
+  // Normalizar data para formato DD/MM/YYYY (adicionar zeros à esquerda se necessário)
+  const normalizeDate = (dateStr) => {
+    if (!dateStr) return dateStr;
+    const parts = dateStr.split('/');
+    if (parts.length !== 3) return dateStr;
+    const day = parts[0].padStart(2, '0');
+    const month = parts[1].padStart(2, '0');
+    const year = parts[2];
+    return `${day}/${month}/${year}`;
+  };
 
   const getDaysInMonth = () => {
     const y = currentDate.getFullYear(), m = currentDate.getMonth();
@@ -262,6 +287,11 @@ function AppointmentCalendar() {
   const getAgendamento = (day, slotId) => {
     const dateStr = formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day));
     return agendamentos.find(a => a.Data === dateStr && a.Slot === slotId);
+  };
+
+  const getBloqueio = (day, slotId) => {
+    const dateStr = formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day));
+    return bloqueios.find(b => b.Data === dateStr && b.Slot === slotId);
   };
 
   const getStatus = (day, slotId) => {
@@ -417,12 +447,11 @@ function AppointmentCalendar() {
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-t-2xl p-4 md:p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" strokeWidth="2"/>
-              <line x1="16" y1="2" x2="16" y2="6" strokeWidth="2"/>
-              <line x1="8" y1="2" x2="8" y2="6" strokeWidth="2"/>
-              <line x1="3" y1="10" x2="21" y2="10" strokeWidth="2"/>
-            </svg>
+            <img 
+              src="https://realdata.com.br/wp-content/uploads/2024/02/logo-realdata.webp" 
+              alt="RealData Logo" 
+              className="h-10 w-auto"
+            />
             <div>
               <h1 className="text-xl font-bold text-white">Sistema de Agendamento</h1>
               <p className="text-blue-100 text-sm">Olá, {user.nome}</p>
@@ -482,6 +511,7 @@ function AppointmentCalendar() {
                     {SLOTS.map(slot => {
                       const status = getStatus(day, slot.id);
                       const agendamento = getAgendamento(day, slot.id);
+                      const bloqueio = getBloqueio(day, slot.id);
                       const dateStr = formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day));
                       
                       if (status === 'ocupado' && agendamento) {
@@ -507,9 +537,9 @@ function AppointmentCalendar() {
                           key={slot.id}
                           onClick={() => handleSlotClick(day, slot)}
                           disabled={status !== 'disponivel'}
-                          className={`w-full text-xs py-1 rounded transition-all ${getColor(status, slot.periodo)}`}
+                          className={`w-full text-xs py-1 rounded transition-all ${getColor(status, slot.periodo)} ${status === 'bloqueado' ? 'font-bold' : ''}`}
                         >
-                          {slot.id}
+                          {status === 'bloqueado' && bloqueio?.Descricao ? bloqueio.Descricao : slot.id}
                         </button>
                       );
                     })}
